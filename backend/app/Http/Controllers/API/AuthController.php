@@ -6,31 +6,31 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
-use Illuminate\Support\Facades\Auth;
 use App\Models\User;
 use App\Models\Instructor;
 use App\Models\Student;
+use Illuminate\Support\Facades\Auth;
 
 class AuthController extends Controller
 {
     public function register(Request $request)
     {
         $validated = $request->validate([
-            'name' => 'required|string',
-            'email' => 'required|email|unique:users',
+            'name'     => 'required|string',
+            'email'    => 'required|email|unique:users',
             'password' => 'required|string|min:6',
-            'phone' => 'nullable|string',
-            'role' => 'required|in:admin,instructor,student',
-            'status' => 'boolean',
+            'phone'    => 'nullable|string',
+            'role'     => 'required|in:admin,instructor,student',
+            'status'   => 'boolean',
         ]);
 
         $user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
+            'name'     => $validated['name'],
+            'email'    => $validated['email'],
             'password' => Hash::make($validated['password']),
-            'phone' => $validated['phone'] ?? null,
-            'role' => $validated['role'],
-            'status' => $validated['status'] ?? true,
+            'phone'    => $validated['phone'] ?? null,
+            'role'     => $validated['role'],
+            'status'   => $validated['status'] ?? true,
         ]);
 
         if ($user->role === 'student') {
@@ -50,61 +50,70 @@ class AuthController extends Controller
             ]);
         }
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = auth()->login($user);
 
-        return response()->json([
-            'token' => $token,
-            'token_type' => 'Bearer',
-            'user' => $user
-        ], 201);
+        return $this->respondWithToken($token, $user);
     }
 
     public function login(Request $request)
     {
-        $request->validate([
+        $credentials = $request->validate([
             'email'    => 'required|email',
-            'password' => 'required',
+            'password' => 'required|string',
         ]);
 
-        $user = User::where('email', $request->email)->first();
-
-        if (! $user || ! Hash::check($request->password, $user->password)) {
+        if (! $token = auth()->attempt($credentials)) {
             throw ValidationException::withMessages([
-                'email' => ['The credentials are incorrect.'],
+                'email' => ['Invalid email or password.'],
             ]);
         }
 
-        $token = $user->createToken('api_token')->plainTextToken;
+        $user = auth()->user();
 
-        return response()->json([
-            'message' => 'Login successful.',
-            'token'   => $token,
-            'user'    => $user,
-        ]);
+        return $this->respondWithToken($token, $user);
     }
 
-    public function logout(Request $request)
+    public function logout()
     {
-        $request->user()->currentAccessToken()->delete();
+        auth()->logout();
 
         return response()->json([
             'message' => 'Logged out successfully.',
         ]);
     }
 
+    public function refresh()
+    {
+        return response()->json([
+            'access_token' => auth('api')->refresh(),
+            'token_type' => 'Bearer',
+            'expires_in' => auth('api')->factory()->getTTL() * 60
+        ]);
+    }
+
     public function profile()
     {
-        $user = Auth::user();
+        $user = auth()->user();
 
         return response()->json([
-            'id' => $user->id,
-            'name' => $user->name,
-            'email' => $user->email,
-            'role' => $user->role,
-            'phone' => $user->phone,
-            'status' => $user->status,
+            'id'         => $user->id,
+            'name'       => $user->name,
+            'email'      => $user->email,
+            'role'       => $user->role,
+            'phone'      => $user->phone,
+            'status'     => $user->status,
             'created_at' => $user->created_at,
             'updated_at' => $user->updated_at,
+        ]);
+    }
+
+    protected function respondWithToken($token, $user)
+    {
+        return response()->json([
+            'token' => $token,
+            'token_type'   => 'bearer',
+            'expires_in'   => auth()->factory()->getTTL() * 60,
+            'user'         => $user
         ]);
     }
 }
